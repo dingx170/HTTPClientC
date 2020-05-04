@@ -45,9 +45,12 @@ int main(int argc, char *argv[]) {
     char host[ARR_SIZE], path[ARR_SIZE]; 
     int port = PORT_DEF, succ_parsing = 0;
 
-    char request[BUF_SIZE], response[BUF_SIZE];
-    const char *requestLineFmt = "GET /%s HTTP/1.0\r\n";
+    char request[BUF_SIZE];//, response[BUF_SIZE];
+    char header_buf[BUF_SIZE];
+
+    const char *requestLineFmt = "GET /%s HTTP/1.1\r\n";
     const char *headerFmt = "Host: %s\r\n";
+    const char *connFmt = "Connection: %s\r\n";
     const char *CRLF = "\r\n";
 
     int sockfd, err; // socket file descriptor and error status
@@ -107,14 +110,22 @@ int main(int argc, char *argv[]) {
     size_t bufLen2 = strlen(headerFmt) + strlen(host) + 1; // plus 1 for '\0'
     char *buffer2 = (char *)malloc(bufLen2);
 
+    // conn buffer
+    size_t bufLen3 = strlen(connFmt) + strlen("close") + 1; // plus 1 for '\0'
+    char *buffer3 = (char *)malloc(bufLen3);
+    
+
     printf("check 3\n");
 
     // construct request
     strcpy(request, "");
     snprintf(buffer1, bufLen1, requestLineFmt, path_adr);
     snprintf(buffer2, bufLen2, headerFmt, host);
+    snprintf(buffer3, bufLen3, connFmt, "close");
+    
     strcat(request, buffer1);
     strcat(request, buffer2);
+    strcat(request, buffer3);
     strcat(request, CRLF);
 
     printf("check 4\n"); // printf("check \n");
@@ -143,11 +154,77 @@ int main(int argc, char *argv[]) {
             checkErr("send request");
         
         // recv response
-        err = recv(sockfd, response, BUF_SIZE, 0);
+        err = recv(sockfd, header_buf, BUF_SIZE, 0);
         if (err < 0)
             checkErr("receive response");
 
-        printf("----------\nResponse:\n----------\n%s\n", response);
+        char *header_end = strstr(header_buf, "\r\n\r\n");
+        int len;
+    
+        char header[BUF_SIZE], ctnt_len[100], ctnt_type[100];
+        len = header_end - header_buf;
+        strncpy(header, header_buf, len); // memcpy(tmp, header_buf, len);
+
+        char *ctnt_len_start = strstr(header_buf, "Content-Length:");
+        char *ctnt_len_end = strstr(ctnt_len_start, "\n");
+        len = ctnt_len_end - ctnt_len_start;
+        strncpy(ctnt_len, ctnt_len_start, len); 
+
+        char *ctnt_type_start = strstr(header_buf, "Content-Type:");
+        char *ctnt_type_end = strstr(ctnt_type_start, "\n");
+        len = ctnt_type_end - ctnt_type_start;
+        strncpy(ctnt_type, ctnt_type_start, len); 
+
+        
+        
+        printf("----------\nResponse header:\n----------\n%s\n", header);
+
+        printf("----------\nResponse ctnt_len:\n----------\n%s\n", ctnt_len);
+
+        printf("----------\nResponse ctnt_type:\n----------\n%s\n", ctnt_type);
+
+        // int bytes, rcvd = 0;
+
+        // do {
+        //     bytes = recv(sockfd, response + rcvd, BUF_SIZE - rcvd, 0);
+        //     if (bytes < 0)
+        //         checkErr("ERROR reading response from socket");
+        //     rcvd += bytes;
+        // } while (bytes != 0);
+        
+        /* receive the response */
+        // int bytes, total;
+        // memset(response,0,sizeof(response));
+        // total = sizeof(response)-1;
+        // int received = 0;
+        // do {
+        //     bytes = recv(sockfd, response+received,total-received, 0);
+        //     if (bytes < 0)
+        //         checkErr("ERROR reading response from socket");
+        //     if (bytes == 0)
+        //         break;
+        //     received+=bytes;
+        // } while (received < total);
+
+
+        // memset(response, 0, sizeof(response));
+        // // int total = sizeof(response)-1;
+        // int received = 0, bytes;
+        // do {
+        //     printf("RESPONSE: %s\n", response);
+
+        //     memset(response, 0, sizeof(response));
+        //     bytes = recv(sockfd, response, 1024, 0);
+        //     if (bytes < 0)
+        //         printf("ERROR reading response from socket");
+        //     if (bytes == 0)
+        //         break;
+        //     received+=bytes;
+        // } while (1); 
+
+
+
+        // printf("----------\nResponse:\n----------\n%s\n", response);
 
         if (success)
             break;
