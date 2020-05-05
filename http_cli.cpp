@@ -159,7 +159,8 @@ int main(int argc, char *argv[]) {
         strncpy(header, header_buf, len); // memcpy(tmp, header_buf, len);
 
         // get body
-        len = BUF_SIZE - len - 4;        
+        len = BUF_SIZE - len - 4;     
+        int tmplen = len;   
         strncpy(body, header_end + sizeof("\r\n\r\n") - 1, len);
         fprintf(stderr, "\nfirst_len: %d\n", len);
 
@@ -176,14 +177,18 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "--------------\nResponse:\n--------------\n%s\n", header);
         fprintf(stderr, "\n\nctnt_len: %s\n", ctnt_len);
         fprintf(stderr, "ctnt_type: %s\n\n", ctnt_type);
+
+        bool text = false;
         if (strstr(ctnt_type, "text")) {
             fprintf(stderr, "\nTEXT\n");
             printf(body);
+            text = true;
         }
         else
         {
             fprintf(stderr, "\nNOT TEXT\n");
-            // write(body);
+            write(fileno(stdout), header_end + sizeof("\r\n\r\n") - 1, tmplen);
+            // fwrite(body, sizeof(char), sizeof(body), fileno(stdout));
         }
    
         
@@ -193,47 +198,18 @@ int main(int argc, char *argv[]) {
             bytes = recv(sockfd, response, BUF_SIZE, 0);
             if (bytes < 0)
                 checkErr("ERROR reading response from socket");
-            printf(response);
+
+            if (text == true)
+                printf(response);
+            else
+                write(fileno(stdout), response, sizeof(response));
+                
+
             rcvd += bytes;
             memset(response, 0, BUF_SIZE);
         } while (bytes != 0);
-        // printf("\n");
        
         fprintf(stderr, "\nREST LEN %d\n", rcvd);
-        
-        /* receive the response */
-        // int bytes, total;
-        // memset(response,0,sizeof(response));
-        // total = sizeof(response)-1;
-        // int received = 0;
-        // do {
-        //     bytes = recv(sockfd, response+received,total-received, 0);
-        //     if (bytes < 0)
-        //         checkErr("ERROR reading response from socket");
-        //     if (bytes == 0)
-        //         break;
-        //     received+=bytes;
-        // } while (received < total);
-
-
-        // memset(response, 0, sizeof(response));
-        // // int total = sizeof(response)-1;
-        // int received = 0, bytes;
-        // do {
-        //     printf("RESPONSE: %s\n", response);
-
-        //     memset(response, 0, sizeof(response));
-        //     bytes = recv(sockfd, response, 1024, 0);
-        //     if (bytes < 0)
-        //         printf("ERROR reading response from socket");
-        //     if (bytes == 0)
-        //         break;
-        //     received+=bytes;
-        // } while (1); 
-
-
-
-        // printf("----------\nResponse:\n----------\n%s\n", response);
 
         if (success)
             break;
