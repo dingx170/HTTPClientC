@@ -45,7 +45,7 @@ int main(int argc, char *argv[]) {
     char host[ARR_SIZE], path[ARR_SIZE]; 
     int port = PORT_DEF, succ_parsing = 0;
 
-    char request[BUF_SIZE];//, response[BUF_SIZE];
+    char request[BUF_SIZE], response[BUF_SIZE];
     char header_buf[BUF_SIZE];
 
     const char *requestLineFmt = "GET /%s HTTP/1.1\r\n";
@@ -63,13 +63,13 @@ int main(int argc, char *argv[]) {
 
     // FIX-ME --> switch stmt
     if (sscanf(argv[1], "http://%99[^:]:%99d/%99[^\n]", host, &port, path) == 3) 
-    { printf("test --- 1\n"); succ_parsing = 1;}
+    { fprintf(stderr, "\ntest --- 1\n\n"); succ_parsing = 1;}
     else if (sscanf(argv[1], "http://%99[^/]/%99[^\n]", host, path) == 2) 
-    { printf("test --- 2\n"); succ_parsing = 1;}
+    { fprintf(stderr, "\ntest --- 2\n\n"); succ_parsing = 1;}
     else if (sscanf(argv[1], "http://%99[^:]:%99d[^\n]", host, &port) == 2) 
-    { printf("test --- 3\n"); succ_parsing = 1;}
+    { fprintf(stderr, "\ntest --- 3\n\n"); succ_parsing = 1;}
     else if (sscanf(argv[1], "http://%99[^\n]", host) == 1) 
-    { printf("test --- 4\n"); succ_parsing = 1;}
+    { fprintf(stderr, "\ntest --- 4\n\n"); succ_parsing = 1;}
 
     if (succ_parsing) {
         if ((path != NULL) && (strlen(path) > 0)) 
@@ -81,20 +81,17 @@ int main(int argc, char *argv[]) {
     asprintf(&port_num, "%d", port);
     asprintf(&path_adr, "%s", path);
     
-
-    printf("host = \"%s\"\n", host);
-    printf("path = \"%s\"\n", path);
-    printf("host_adr = \"%s\"\n", host_adr);
-    printf("port_num = \"%s\"\n", port_num);
-    printf("path_adr = \"%s\"\n", path_adr);
+    // printf("host = \"%s\"\n", host);
+    // printf("path = \"%s\"\n", path);
+    // printf("host_adr = \"%s\"\n", host_adr);
+    // printf("port_num = \"%s\"\n", port_num);
+    // printf("path_adr = \"%s\"\n", path_adr);
 
     // get IP
     memset(&hints, 0, sizeof(struct addrinfo));
     hints.ai_family = AF_UNSPEC; // use IPv4 or IPv6
-    // hints.ai_socktype = SOCK_STREAM; // use TCP
     hints.ai_flags = AI_NUMERICSERV; // treat port as number
     hints.ai_protocol = 0; 
-
 
     err = getaddrinfo(host, port_num, &hints, &svr_addr);
     if (err != 0)
@@ -114,9 +111,6 @@ int main(int argc, char *argv[]) {
     size_t bufLen3 = strlen(connFmt) + strlen("close") + 1; // plus 1 for '\0'
     char *buffer3 = (char *)malloc(bufLen3);
     
-
-    printf("check 3\n");
-
     // construct request
     strcpy(request, "");
     snprintf(buffer1, bufLen1, requestLineFmt, path_adr);
@@ -127,9 +121,6 @@ int main(int argc, char *argv[]) {
     strcat(request, buffer2);
     strcat(request, buffer3);
     strcat(request, CRLF);
-
-    printf("check 4\n"); // printf("check \n");
-
 
     bool success = false;
 
@@ -146,7 +137,8 @@ int main(int argc, char *argv[]) {
             success = true;
         
         
-        printf("----------\nRequest:\n----------\n%s\n", request);
+        fprintf(stderr, "--------------\nRequest:\n--------------\n%s\n", request);
+
 
         // send request
         err = send(sockfd, request, strlen(request), 0);
@@ -160,37 +152,54 @@ int main(int argc, char *argv[]) {
 
         char *header_end = strstr(header_buf, "\r\n\r\n");
         int len;
-    
-        char header[BUF_SIZE], ctnt_len[100], ctnt_type[100];
+
+        // get header
+        char header[BUF_SIZE], body[BUF_SIZE], ctnt_len[100], ctnt_type[100];
         len = header_end - header_buf;
         strncpy(header, header_buf, len); // memcpy(tmp, header_buf, len);
 
-        char *ctnt_len_start = strstr(header_buf, "Content-Length:");
+        // get body
+        len = BUF_SIZE - len - 4;        
+        strncpy(body, header_end + sizeof("\r\n\r\n") - 1, len);
+        fprintf(stderr, "\nfirst_len: %d\n", len);
+
+        char *ctnt_len_start = strstr(header_buf, "Content-Length:") + sizeof("Content-Length:");
         char *ctnt_len_end = strstr(ctnt_len_start, "\n");
         len = ctnt_len_end - ctnt_len_start;
         strncpy(ctnt_len, ctnt_len_start, len); 
 
-        char *ctnt_type_start = strstr(header_buf, "Content-Type:");
+        char *ctnt_type_start = strstr(header_buf, "Content-Type:") + sizeof("Content-Type:");
         char *ctnt_type_end = strstr(ctnt_type_start, "\n");
         len = ctnt_type_end - ctnt_type_start;
         strncpy(ctnt_type, ctnt_type_start, len); 
 
+        fprintf(stderr, "--------------\nResponse:\n--------------\n%s\n", header);
+        fprintf(stderr, "\n\nctnt_len: %s\n", ctnt_len);
+        fprintf(stderr, "ctnt_type: %s\n\n", ctnt_type);
+        if (strstr(ctnt_type, "text")) {
+            fprintf(stderr, "\nTEXT\n");
+            printf(body);
+        }
+        else
+        {
+            fprintf(stderr, "\nNOT TEXT\n");
+            // write(body);
+        }
+   
         
-        
-        printf("----------\nResponse header:\n----------\n%s\n", header);
-
-        printf("----------\nResponse ctnt_len:\n----------\n%s\n", ctnt_len);
-
-        printf("----------\nResponse ctnt_type:\n----------\n%s\n", ctnt_type);
-
-        // int bytes, rcvd = 0;
-
-        // do {
-        //     bytes = recv(sockfd, response + rcvd, BUF_SIZE - rcvd, 0);
-        //     if (bytes < 0)
-        //         checkErr("ERROR reading response from socket");
-        //     rcvd += bytes;
-        // } while (bytes != 0);
+        int bytes, rcvd = 0;
+        do {
+            // bytes = recv(sockfd, response + rcvd, BUF_SIZE - rcvd, 0);
+            bytes = recv(sockfd, response, BUF_SIZE, 0);
+            if (bytes < 0)
+                checkErr("ERROR reading response from socket");
+            printf(response);
+            rcvd += bytes;
+            memset(response, 0, BUF_SIZE);
+        } while (bytes != 0);
+        // printf("\n");
+       
+        fprintf(stderr, "\nREST LEN %d\n", rcvd);
         
         /* receive the response */
         // int bytes, total;
@@ -237,6 +246,8 @@ int main(int argc, char *argv[]) {
     buffer1 = NULL;
     free(buffer2);
     buffer2 = NULL;
+    free(buffer3);
+    buffer3 = NULL;
 
     freeaddrinfo(svr_addr);
     svr_addr = NULL;
