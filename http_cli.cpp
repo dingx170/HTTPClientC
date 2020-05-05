@@ -39,7 +39,7 @@ int main(int argc, char *argv[]) {
     int port = PORT_DEF;
 
     // flags
-    bool url_parsed = false, addr_connected = false;//, is_text = false;
+    bool url_parsed = false, addr_connected = false, is_text = false;
 
     // header info
     const char *requestLineFmt = "GET /%s HTTP/1.1\r\n";
@@ -164,12 +164,12 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "--------------\nResponse:\n--------------\n%s\n", header);
 
         // adjust print aproach based on content type
-        // if (strstr(ctnt_type, "text")) {
-        //     printf(body);
-        //     is_text = true;
-        // } else {
+        if (strstr(ctnt_type, "text")) {
+            printf(body);
+            is_text = true;
+        } else {
             write(fileno(stdout), header_end + sizeof("\r\n\r\n") - 1, tmplen);
-        // }
+        }
 
         // continue content receiving
         do {
@@ -177,10 +177,10 @@ int main(int argc, char *argv[]) {
             if (bytes < 0)
                 checkErr("ERROR reading response from socket");
 
-            // if (is_text == true)
-            //     printf(response);
-            // else
-                write(fileno(stdout), response, sizeof(response));
+            if (is_text == true)
+                printf(response);
+            else
+                write(fileno(stdout), response, bytes);
                 
             memset(response, 0, BUF_SIZE);
         } while (bytes != 0);
