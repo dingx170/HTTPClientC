@@ -11,7 +11,7 @@
 #include <assert.h>
 #include <iostream>
 #include <ostream>
-// #include <string>
+#include <string>
 
 
 int handle_client(int sock);
@@ -104,7 +104,7 @@ int handle_client(int sock) {
     printf("get path:%s\n", path);
 
     // check if not ok
-    if (strncmp (flag, "200 OK", 6) != 0)
+    if (strncmp(flag, "200 OK", 6) != 0)
         printf("\nNOT OK\n");
     
     printf("* get data to send\n");
@@ -133,7 +133,7 @@ int handle_client(int sock) {
         fclose(file_stream);
     }
     
-    delete [] path;
+    // delete [] path;
     // free(file_buf);
 
     printf("* prepare msg\n");
@@ -151,6 +151,46 @@ int handle_client(int sock) {
     strftime(buf, sizeof buf, "%a, %d %b %Y %H:%M:%S %Z", &tm);
     printf("Date: %s\n", buf);
     printf("Date size: %zd\n", strlen(buf));
+
+    // char* file_type =  "text/html";
+    // char file_type[20] = "text/html";
+        
+    const char *type_start = strchr(path, '.') + 1;
+    const char *type_end = strchr(path, '\0');
+    size_t type_len = type_end - type_start;
+    char* typestr = (char*)malloc(type_len * sizeof(char));
+    strncpy(typestr, type_start, type_len);
+    typestr[strlen(typestr)] = '\0';
+
+    printf("type_start: %s\n", typestr);
+
+    // const char *path_start = strchr(request, ' ') + 1;
+    // const char *path_end = strchr(path_start, ' ');
+    // size_t path_len = path_end - path_start;
+    // size_t root_len = strlen("web_root");
+
+    // char* path = (char*)malloc((root_len + path_len) * sizeof(char));
+    // strcpy(path, "web_root");
+    // strncpy(path + root_len, path_start, path_len);
+    // path[strlen(path)] = '\0';
+
+
+
+    // if (path.substr(path.find_last_of(".") + 1) != "html") {
+    //     strcpy(file_type, "image/jpeg");
+    // }
+
+    // if (strncmp(type_start, "html", 4) != 0) {
+    //     strcpy(file_type, "image/jpeg");
+    // }
+
+    // FILE_TYPE = {'.txt' : 'text/plain',
+    //          '.html' : 'text/html',
+    //          '.htm' : 'text/htm',
+    //          '.css' : 'text/css',
+    //          '.jpg' : 'image/jpeg',
+    //          '.jpeg' : 'image/jpeg',
+    //          '.png' : 'image/jpeg'}
 
     // header info format
     const char *stat_fmt = "HTTP/1.1 %s\r\n";
@@ -170,9 +210,9 @@ int handle_client(int sock) {
     char *buffer2 = (char *)malloc(tmp_len);
     snprintf(buffer2, tmp_len, conn_fmt, "close");
 
-    tmp_len = strlen(type_fmt) + strlen("text") + 1;
+    tmp_len = strlen(type_fmt) + strlen("image/jpeg") + 1;
     char *buffer3 = (char *)malloc(tmp_len);
-    snprintf(buffer3, tmp_len, type_fmt, "text");
+    snprintf(buffer3, tmp_len, type_fmt, "image/jpeg");
 
     tmp_len = strlen(clen_fmt) + strlen(lenbuf) + 1;
     char *buffer4 = (char *)malloc(tmp_len);
@@ -223,6 +263,9 @@ int handle_client(int sock) {
     free(buffer6);
     buffer6 = NULL;
 
+    delete [] path;
+    free(file_buf);
+
     if (retval < 0) {
         fprintf(stderr, "ERROR: failed to send message\n");
         return -1;
@@ -232,7 +275,7 @@ int handle_client(int sock) {
 
 char* parse_request(const char* request, char* flag) {
     // check if not GET
-    if (strncmp (request, "GET", 3) != 0)
+    if (strncmp(request, "GET", 3) != 0)
         strcpy(flag, "501 Not Implemented");
 
     const char *path_start = strchr(request, ' ') + 1;
