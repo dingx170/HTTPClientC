@@ -115,82 +115,60 @@ int handle_client(int sock) {
     size_t file_size = (size_t) sb.st_size;
     printf("File size: %zd bytes\n", file_size);
 
-    char* file_buf = (char*)malloc((file_size + 1) * sizeof(char));
-    printf("\nallocated buf: %zd\n", sizeof(file_buf));
+    printf("* prepare msg\n");
 
+
+    char* file_buf = (char*)malloc((file_size + 1) * sizeof(char));
     FILE* file_stream = fopen(path, "rb");
     if (file_stream == NULL) {
         strcpy(flag, "404 Not Found");
     }
-
     if (file_stream != nullptr) {
         size_t result = fread(file_buf, 1, (size_t) sb.st_size, file_stream);
-
         if (result != file_size)
             printf("reading error");
-        
-        printf("TEST -> %s, length -> %ld\n", file_buf, strlen(file_buf));
         fclose(file_stream);
     }
-    
-    // delete [] path;
-    // free(file_buf);
-
-    printf("* prepare msg\n");
 
     printf("File len %ld\n", sb.st_size);
     char lenbuf[20];
     sprintf(lenbuf, "%ld", sb.st_size);
     printf("File len buf %zd\n", strlen(lenbuf));
 
-    // get date
-    time_t now = time(0);
-    struct tm tm = *gmtime(&now);
-    char buf[1000];
-
-    strftime(buf, sizeof buf, "%a, %d %b %Y %H:%M:%S %Z", &tm);
-    printf("Date: %s\n", buf);
-    printf("Date size: %zd\n", strlen(buf));
-
-    // char* file_type =  "text/html";
-    // char file_type[20] = "text/html";
-        
     const char *type_start = strchr(path, '.') + 1;
     const char *type_end = strchr(path, '\0');
     size_t type_len = type_end - type_start;
-    char* typestr = (char*)malloc(type_len * sizeof(char));
+    char* typestr = (char*)malloc((type_len+1) * sizeof(char));
     strncpy(typestr, type_start, type_len);
     typestr[strlen(typestr)] = '\0';
 
-    printf("type_start: %s\n", typestr);
 
-    // const char *path_start = strchr(request, ' ') + 1;
-    // const char *path_end = strchr(path_start, ' ');
-    // size_t path_len = path_end - path_start;
-    // size_t root_len = strlen("web_root");
+    char file_type[20];
 
-    // char* path = (char*)malloc((root_len + path_len) * sizeof(char));
-    // strcpy(path, "web_root");
-    // strncpy(path + root_len, path_start, path_len);
-    // path[strlen(path)] = '\0';
+    if (strncmp(typestr, "txt", 3) == 0)
+        strcpy(file_type, "text/plain");
+    else if (strncmp(typestr, "html", 4) == 0)
+        strcpy(file_type, "text/html");
+    else if (strncmp(typestr, "htm", 3) == 0)
+        strcpy(file_type, "text/htm");
+    else if (strncmp(typestr, "css", 3) == 0)
+        strcpy(file_type, "text/css");
+    else if (strncmp(typestr, "jpg", 3) == 0)
+        strcpy(file_type, "image/jpeg");
+    else if (strncmp(typestr, "jpeg", 4) == 0)
+        strcpy(file_type, "image/jpeg");
+    else if (strncmp(typestr, "png", 3) == 0)
+        strcpy(file_type, "image/jpeg");
+    else
+        printf("file type not implemented");
 
 
+    // get date
+    time_t now = time(0);
+    struct tm tm = *gmtime(&now);
+    char date_buf[1000];
 
-    // if (path.substr(path.find_last_of(".") + 1) != "html") {
-    //     strcpy(file_type, "image/jpeg");
-    // }
-
-    // if (strncmp(type_start, "html", 4) != 0) {
-    //     strcpy(file_type, "image/jpeg");
-    // }
-
-    // FILE_TYPE = {'.txt' : 'text/plain',
-    //          '.html' : 'text/html',
-    //          '.htm' : 'text/htm',
-    //          '.css' : 'text/css',
-    //          '.jpg' : 'image/jpeg',
-    //          '.jpeg' : 'image/jpeg',
-    //          '.png' : 'image/jpeg'}
+    strftime(date_buf, sizeof date_buf, "%a, %d %b %Y %H:%M:%S %Z", &tm);
 
     // header info format
     const char *stat_fmt = "HTTP/1.1 %s\r\n";
@@ -201,6 +179,7 @@ int handle_client(int sock) {
     const char *date_fmt = "Date: %s\r\n"; 
     const char *CRLF = "\r\n";
 
+// flag, file_type, lenbuf, date_buf
     size_t tmp_len;
     tmp_len = strlen(stat_fmt) + strlen(flag) + 1;
     char *buffer1 = (char *)malloc(tmp_len);
@@ -210,9 +189,9 @@ int handle_client(int sock) {
     char *buffer2 = (char *)malloc(tmp_len);
     snprintf(buffer2, tmp_len, conn_fmt, "close");
 
-    tmp_len = strlen(type_fmt) + strlen("image/jpeg") + 1;
+    tmp_len = strlen(type_fmt) + strlen(file_type) + 1;
     char *buffer3 = (char *)malloc(tmp_len);
-    snprintf(buffer3, tmp_len, type_fmt, "image/jpeg");
+    snprintf(buffer3, tmp_len, type_fmt, file_type);
 
     tmp_len = strlen(clen_fmt) + strlen(lenbuf) + 1;
     char *buffer4 = (char *)malloc(tmp_len);
@@ -222,32 +201,32 @@ int handle_client(int sock) {
     char *buffer5 = (char *)malloc(tmp_len);
     snprintf(buffer5, tmp_len, modi_fmt, ctime(&sb.st_mtime));
 
-    tmp_len = strlen(date_fmt) + strlen(buf) + 1;
+    tmp_len = strlen(date_fmt) + strlen(date_buf) + 1;
     char *buffer6 = (char *)malloc(tmp_len);
-    snprintf(buffer6, tmp_len, date_fmt, buf);
+    snprintf(buffer6, tmp_len, date_fmt, date_buf);
     
-    char request[0xfff];
-    strcpy(request, "");
-    strcat(request, buffer1);
-    strcat(request, buffer2);
-    strcat(request, buffer3);
-    strcat(request, buffer4);
-    strcat(request, buffer5);
-    strcat(request, buffer6);
-    strcat(request, CRLF);
+    char header[0xfff];
+    strcpy(header, "");
+    strcat(header, buffer1);
+    strcat(header, buffer2);
+    strcat(header, buffer3);
+    strcat(header, buffer4);
+    strcat(header, buffer5);
+    strcat(header, buffer6);
+    strcat(header, CRLF);
 
-    // const char* filefile = (const char*) file_buf;//"filefilefile";
-    strcat(request, file_buf);
+    char *reply = (char*)malloc(strlen(header) + file_size);
+    strcpy(reply, header);
+    memcpy(reply + strlen(header), file_buf, file_size);
 
-    printf(request);
 
-    printf("again\n");
-    for( int i = 0 ; i < (int) strlen(request) ; i ++ ){
-		printf("%c", request[i]); 
-	}
+    // strcat(header, file_buf);
+    // memcpy(header + strlen(header), file_buf, file_size);
+    printf("---------- Sending header ----------\n");
+    printf(reply);
 
     // send
-    retval = send_msg(sock, request, strlen(request));
+    retval = send_msg(sock, reply, strlen(header) + file_size);
 
     // free(request);
     free(buffer1);
