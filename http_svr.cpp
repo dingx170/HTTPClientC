@@ -19,7 +19,7 @@ int send_msg(int sock, char* buffer, unsigned long num_bytes);
 int recv_msg(int sock, char* buffer, unsigned long num_bytes);
 unsigned short get_port(int argc, char* argv[]);
 void error_exit(const char* step);
-void parse_request(const char* request, char* path, char* flag);
+char* parse_request(const char* request, char* flag);
 
 
 #define BACKLOG 5
@@ -99,8 +99,9 @@ int handle_client(int sock) {
     printf(header_buf);
 
     printf("* parse request\n");
-    char path[BUF_SIZE];
-    parse_request(header_buf, path, flag);
+    char* path = parse_request(header_buf, flag);
+
+    printf("get path:%s\n", path);
 
     // check if not ok
     if (strncmp (flag, "200 OK", 6) != 0)
@@ -110,20 +111,56 @@ int handle_client(int sock) {
     struct stat sb;
     if (stat(path, &sb) == -1)
         perror("stat");
-    printf("out: ");
-    printf("File size: %lld bytes\n", (long long) sb.st_size);
-    printf("Last file modification: %s", ctime(&sb.st_mtime));
     
+    size_t file_size = (size_t) sb.st_size;
+    printf("File size: %zd bytes\n", file_size);
+
+    char* file_buf = (char*)malloc((file_size + 1) * sizeof(char));
+    printf("\nallocated buf: %zd\n", sizeof(file_buf));
+
+    FILE* file_stream = fopen(path, "rb");
+    if (file_stream == NULL) {
+        strcpy(flag, "404 Not Found");
+    }
+
+    if (file_stream != nullptr) {
+        size_t result = fread(file_buf, 1, (size_t) sb.st_size, file_stream);
+
+        if (result != file_size)
+            printf("reading error");
+        
+        printf("TEST -> %s, length -> %ld\n", file_buf, strlen(file_buf));
+        fclose(file_stream);
+    }
+    
+    delete [] path;
+    // free(file_buf);
 
     printf("* prepare msg\n");
-    // header info
+
+    printf("File len %ld\n", sb.st_size);
+    char lenbuf[20];
+    sprintf(lenbuf, "%ld", sb.st_size);
+    printf("File len buf %zd\n", strlen(lenbuf));
+
+    // get date
+    time_t now = time(0);
+    struct tm tm = *gmtime(&now);
+    char buf[1000];
+
+    strftime(buf, sizeof buf, "%a, %d %b %Y %H:%M:%S %Z", &tm);
+    printf("Date: %s\n", buf);
+    printf("Date size: %zd\n", strlen(buf));
+
+    // header info format
     const char *stat_fmt = "HTTP/1.1 %s\r\n";
     const char *conn_fmt = "Connection: %s\r\n";
-    const char *type_fmt = "Content-type: %s\r\n";
-    // const char *clen_fmt = "Content-length: %s\r\n";   
-    const char *modi_fmt = "Last-modified: %s\r\n";
-    // const char *date_fmt = "Date: %s\r\n"; 
+    const char *type_fmt = "Content-Type: %s\r\n";
+    const char *clen_fmt = "Content-Length: %s\r\n";   
+    const char *modi_fmt = "Last-Modified: %s";
+    const char *date_fmt = "Date: %s\r\n"; 
     const char *CRLF = "\r\n";
+
     size_t tmp_len;
     tmp_len = strlen(stat_fmt) + strlen(flag) + 1;
     char *buffer1 = (char *)malloc(tmp_len);
@@ -132,50 +169,42 @@ int handle_client(int sock) {
     tmp_len = strlen(conn_fmt) + strlen("close") + 1;
     char *buffer2 = (char *)malloc(tmp_len);
     snprintf(buffer2, tmp_len, conn_fmt, "close");
-    //
-    printf("check 1");
-    tmp_len = strlen(type_fmt) + strlen("text") + 1;
-    printf("check 2");
-    char *buffer3 = (char *)malloc(tmp_len);
-    printf("check 3");
-    snprintf(buffer3, tmp_len, stat_fmt, "text");
-    printf("check 4");
-    printf("%ld", sb.st_size);
-    printf("check 1");
 
-    // tmp_len = strlen(clen_fmt) + (size_t) sb.st_size + 1;
-    // char *buffer4 = (char *)malloc(tmp_len);
-    // snprintf(buffer4, tmp_len, clen_fmt, sb.st_size);
+    tmp_len = strlen(type_fmt) + strlen("text") + 1;
+    char *buffer3 = (char *)malloc(tmp_len);
+    snprintf(buffer3, tmp_len, type_fmt, "text");
+
+    tmp_len = strlen(clen_fmt) + strlen(lenbuf) + 1;
+    char *buffer4 = (char *)malloc(tmp_len);
+    snprintf(buffer4, tmp_len, clen_fmt, lenbuf);
     
     tmp_len = strlen(modi_fmt) + strlen(ctime(&sb.st_mtime)) + 1;
     char *buffer5 = (char *)malloc(tmp_len);
     snprintf(buffer5, tmp_len, modi_fmt, ctime(&sb.st_mtime));
 
-    // tmp_len = strlen(date_fmt) + strlen(flag) + 1;
-    // char *buffer6 = (char *)malloc(tmp_len);
-    // snprintf(buffer6, tmp_len, date_fmt, flag);
-
-
-
-
-
-    // std::string msg = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 12\r\n\r\nHello world!";
-    // int len = msg.size();
-    // char *hello = new char[len + 1];
-    // std::copy(msg.begin(), msg.end(), hello);
-    // hello[len] = '\0';
+    tmp_len = strlen(date_fmt) + strlen(buf) + 1;
+    char *buffer6 = (char *)malloc(tmp_len);
+    snprintf(buffer6, tmp_len, date_fmt, buf);
     
     char request[0xfff];
     strcpy(request, "");
     strcat(request, buffer1);
     strcat(request, buffer2);
     strcat(request, buffer3);
-    // strcat(request, buffer4);
+    strcat(request, buffer4);
     strcat(request, buffer5);
-    // strcat(request, buffer6);
+    strcat(request, buffer6);
     strcat(request, CRLF);
 
+    // const char* filefile = (const char*) file_buf;//"filefilefile";
+    strcat(request, file_buf);
+
     printf(request);
+
+    printf("again\n");
+    for( int i = 0 ; i < (int) strlen(request) ; i ++ ){
+		printf("%c", request[i]); 
+	}
 
     // send
     retval = send_msg(sock, request, strlen(request));
@@ -187,12 +216,12 @@ int handle_client(int sock) {
     buffer2 = NULL;
     free(buffer3);
     buffer3 = NULL;
-    // free(buffer4);
-    // buffer4 = NULL;
-        free(buffer5);
+    free(buffer4);
+    buffer4 = NULL;
+    free(buffer5);
     buffer5 = NULL;
-    //     free(buffer6);
-    // buffer6 = NULL;
+    free(buffer6);
+    buffer6 = NULL;
 
     if (retval < 0) {
         fprintf(stderr, "ERROR: failed to send message\n");
@@ -201,25 +230,22 @@ int handle_client(int sock) {
     return 0;
 }
 
-void parse_request(const char* request, char* path, char* flag) {
+char* parse_request(const char* request, char* flag) {
     // check if not GET
     if (strncmp (request, "GET", 3) != 0)
         strcpy(flag, "501 Not Implemented");
 
-    const char *start = strchr(request, '/') + 1;
-    const char *end = strchr(start, ' ');
-    strncpy(path, start, end - start);
-    path[end - start + 1] = '\0';
+    const char *path_start = strchr(request, ' ') + 1;
+    const char *path_end = strchr(path_start, ' ');
+    size_t path_len = path_end - path_start;
+    size_t root_len = strlen("web_root");
 
-    // printf("in: %s\n", path);
-    // printf("in: %d\n", (int)sizeof(path));
+    char* path = (char*)malloc((root_len + path_len) * sizeof(char));
+    strcpy(path, "web_root");
+    strncpy(path + root_len, path_start, path_len);
+    path[strlen(path)] = '\0';
 
-    // struct stat sb;
-    // if (stat(path, &sb) == -1)
-    //     perror("stat");
-    // printf("in: ");
-    // printf("File size: %lld bytes\n", (long long) sb.st_size);
-    // printf("Last file modification: %s", ctime(&sb.st_mtime));
+    return path;
 }
 
 
