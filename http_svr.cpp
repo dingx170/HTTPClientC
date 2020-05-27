@@ -1,3 +1,10 @@
+/**
+ * A simple HTTP server that receives a request from a client 
+ * and then responses with the file requested, if it exists
+ * @author Tong (Debby) Ding
+ * @version 1.0
+ * @see CPSC 5510 Spring 2020, Seattle University
+ */
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -8,11 +15,7 @@
 #include <string.h>
 #include <limits.h>
 #include <errno.h>
-#include <assert.h>
 #include <iostream>
-#include <ostream>
-#include <string>
-
 
 int handle_client(int sock);
 int send_msg(int sock, char* buffer, unsigned long num_bytes);
@@ -20,15 +23,23 @@ int recv_msg(int sock, char* buffer, unsigned long num_bytes);
 unsigned short get_port(int argc, char* argv[]);
 void error_exit(const char* step);
 char* parse_request(const char* request, char* flag);
-
+void get_file_type(const char* path, char* flag, char* file_type);
+char* read_file(const char* path, char* flag, size_t file_size);
+void prep_header(char* header, char* mod_time, const char* file_type, const char* flag, const char* len_buf, const char* date_buf);
+void prep_header_err(char* header, const char* flag);
 
 #define BACKLOG 5
 #define BUF_SIZE 8190
 
+/**
+ * Initiate a server to receive request from clients
+ * @param argc number of arguments entered by user
+ * @param argv[] the content of arguments
+ */ 
 int main(int argc, char* argv[]) {
 
+    // set up listening socket
     unsigned short listening_port = get_port(argc, argv);
-
     struct sockaddr_in listening_sockaddr;
     memset(&listening_sockaddr, 0, sizeof(listening_sockaddr));
     listening_sockaddr.sin_family = AF_INET;
@@ -55,7 +66,8 @@ int main(int argc, char* argv[]) {
         struct sockaddr_in cli_addr;
         socklen_t cli_size; 
 
-        int client_sock = accept(listening_sock, (struct sockaddr *) &cli_addr, &cli_size);
+        // handle requests from clients
+        int client_sock = accept(listening_sock, (struct sockaddr*) &cli_addr, &cli_size);
         if (client_sock == -1) {
             perror("accept client connection");
         } else {
@@ -67,83 +79,105 @@ int main(int argc, char* argv[]) {
     return 0;
 }
 
-void error_exit(const char* step) {
-    perror(step);
-    exit(1);
-}
-
 /**
- * Handles communication with one client connection
- * PRE:  the socket (sock param) is connected
- * POST: the socket (sock param) is connected (the caller must close it)
- * 
+ * Handle communication with one client connection
  * @param sock the socket fd connected to the client
  * @return an error code (0 success, -1 error)
  */ 
 int handle_client(int sock) {
-    char header_buf[BUF_SIZE];
-    int retval = recv_msg(sock, header_buf, BUF_SIZE);  // update buf size ???
-    
+
+    char flag[100] = "200 OK";  // error status code
+    char header[BUF_SIZE];  // response header
+
+    // get request from client
+    char request_header[BUF_SIZE];
+    int retval = recv_msg(sock, request_header, BUF_SIZE);
     if (retval < 0) {
         fprintf(stderr, "ERROR: failed to receive message\n");
         return -1;
-    }
-
-    char flag[100] = "200 OK";
-
-    char *header_endptr = strstr(header_buf, "\r\n\r\n");
-    if (header_endptr == nullptr)
+    }    
+    char* header_endptr = strstr(request_header, "\r\n\r\n");
+    if (header_endptr == nullptr) 
         strcpy(flag, "413 Entity Too Large");
-    
-    printf("* receive request\n------------------\n");
-    printf(header_buf);
+        
+    printf("\n\n---------- Received request ----------\n");
+    printf(request_header);
 
-    printf("* parse request\n");
-    char* path = parse_request(header_buf, flag);
+    try {
+        printf("* parse request\n");
+        char* path = parse_request(request_header, flag);
 
-    printf("get path:%s\n", path);
+        printf("* check file status\n");
+        struct stat sb;
+        if (stat(path, &sb) == -1)
+            perror("stat");
+        size_t file_size = (size_t) sb.st_size;
+        char len_buf[20];
+        sprintf(len_buf, "%ld", sb.st_size);
+        char* mod_time = ctime(&sb.st_mtime);
 
-    // check if not ok
-    if (strncmp(flag, "200 OK", 6) != 0)
-        printf("\nNOT OK\n");
-    
-    printf("* get data to send\n");
-    struct stat sb;
-    if (stat(path, &sb) == -1)
-        perror("stat");
-    
-    size_t file_size = (size_t) sb.st_size;
-    printf("File size: %zd bytes\n", file_size);
+        printf("* prepare response msg\n");
+        // get file type
+        char file_type[20];
+        get_file_type(path, flag, file_type);
+        // get file
+        char* file_buf = read_file(path, flag, file_size);
+        // get date
+        time_t now = time(0);
+        struct tm tm = *gmtime(&now);
+        char date_buf[1000];
+        strftime(date_buf, sizeof date_buf, "%a, %d %b %Y %H:%M:%S %Z", &tm);
 
-    printf("* prepare msg\n");
+        // prepare header
+        if (strncmp(flag, "200 OK", 6) != 0)
+            prep_header_err(header, flag);
+        else
+            prep_header(header, mod_time, file_type, flag, len_buf, date_buf);
 
+        // prepare response
+        char* response = (char*)malloc(strlen(header) + file_size);
+        strcpy(response, header);
+        memcpy(response + strlen(header), file_buf, file_size);
 
-    char* file_buf = (char*)malloc((file_size + 1) * sizeof(char));
-    FILE* file_stream = fopen(path, "rb");
-    if (file_stream == NULL) {
-        strcpy(flag, "404 Not Found");
+        printf("\n---------- Sending response ----------\n");
+        printf(response);
+
+        // send response
+        retval = send_msg(sock, response, strlen(header) + file_size);
+        if (retval < 0) {
+            fprintf(stderr, "ERROR: failed to send message\n");
+            return -1;
+        }
+        free(path);
+        free(file_buf);
+        free(response);
+
+    } catch (...) {
+        strcpy(flag, "500 Internal Server Error");
+        prep_header_err(header, flag);
+        retval = send_msg(sock, header, strlen(header));
+        if (retval < 0) {
+            fprintf(stderr, "ERROR: failed to send message\n");
+            return -1;
+        }
     }
-    if (file_stream != nullptr) {
-        size_t result = fread(file_buf, 1, (size_t) sb.st_size, file_stream);
-        if (result != file_size)
-            printf("reading error");
-        fclose(file_stream);
-    }
 
-    printf("File len %ld\n", sb.st_size);
-    char lenbuf[20];
-    sprintf(lenbuf, "%ld", sb.st_size);
-    printf("File len buf %zd\n", strlen(lenbuf));
+    return 0;
+}
 
+/**
+ * Get the type of a file at a given path
+ * @param path the path to locate the file
+ * @param flag indicate error status code
+ * @param file_type the type found
+ */ 
+void get_file_type(const char* path, char* flag, char* file_type) {
     const char *type_start = strchr(path, '.') + 1;
     const char *type_end = strchr(path, '\0');
     size_t type_len = type_end - type_start;
     char* typestr = (char*)malloc((type_len+1) * sizeof(char));
     strncpy(typestr, type_start, type_len);
     typestr[strlen(typestr)] = '\0';
-
-
-    char file_type[20];
 
     if (strncmp(typestr, "txt", 3) == 0)
         strcpy(file_type, "text/plain");
@@ -160,103 +194,23 @@ int handle_client(int sock) {
     else if (strncmp(typestr, "png", 3) == 0)
         strcpy(file_type, "image/jpeg");
     else
-        printf("file type not implemented");
-
-
-    // get date
-    time_t now = time(0);
-    struct tm tm = *gmtime(&now);
-    char date_buf[1000];
-
-    strftime(date_buf, sizeof date_buf, "%a, %d %b %Y %H:%M:%S %Z", &tm);
-
-    // header info format
-    const char *stat_fmt = "HTTP/1.1 %s\r\n";
-    const char *conn_fmt = "Connection: %s\r\n";
-    const char *type_fmt = "Content-Type: %s\r\n";
-    const char *clen_fmt = "Content-Length: %s\r\n";   
-    const char *modi_fmt = "Last-Modified: %s";
-    const char *date_fmt = "Date: %s\r\n"; 
-    const char *CRLF = "\r\n";
-
-// flag, file_type, lenbuf, date_buf
-    size_t tmp_len;
-    tmp_len = strlen(stat_fmt) + strlen(flag) + 1;
-    char *buffer1 = (char *)malloc(tmp_len);
-    snprintf(buffer1, tmp_len, stat_fmt, flag);
+        strcpy(flag, "400 Bad Request");
     
-    tmp_len = strlen(conn_fmt) + strlen("close") + 1;
-    char *buffer2 = (char *)malloc(tmp_len);
-    snprintf(buffer2, tmp_len, conn_fmt, "close");
-
-    tmp_len = strlen(type_fmt) + strlen(file_type) + 1;
-    char *buffer3 = (char *)malloc(tmp_len);
-    snprintf(buffer3, tmp_len, type_fmt, file_type);
-
-    tmp_len = strlen(clen_fmt) + strlen(lenbuf) + 1;
-    char *buffer4 = (char *)malloc(tmp_len);
-    snprintf(buffer4, tmp_len, clen_fmt, lenbuf);
-    
-    tmp_len = strlen(modi_fmt) + strlen(ctime(&sb.st_mtime)) + 1;
-    char *buffer5 = (char *)malloc(tmp_len);
-    snprintf(buffer5, tmp_len, modi_fmt, ctime(&sb.st_mtime));
-
-    tmp_len = strlen(date_fmt) + strlen(date_buf) + 1;
-    char *buffer6 = (char *)malloc(tmp_len);
-    snprintf(buffer6, tmp_len, date_fmt, date_buf);
-    
-    char header[0xfff];
-    strcpy(header, "");
-    strcat(header, buffer1);
-    strcat(header, buffer2);
-    strcat(header, buffer3);
-    strcat(header, buffer4);
-    strcat(header, buffer5);
-    strcat(header, buffer6);
-    strcat(header, CRLF);
-
-    char *reply = (char*)malloc(strlen(header) + file_size);
-    strcpy(reply, header);
-    memcpy(reply + strlen(header), file_buf, file_size);
-
-
-    // strcat(header, file_buf);
-    // memcpy(header + strlen(header), file_buf, file_size);
-    printf("---------- Sending header ----------\n");
-    printf(reply);
-
-    // send
-    retval = send_msg(sock, reply, strlen(header) + file_size);
-
-    // free(request);
-    free(buffer1);
-    buffer1 = NULL;
-    free(buffer2);
-    buffer2 = NULL;
-    free(buffer3);
-    buffer3 = NULL;
-    free(buffer4);
-    buffer4 = NULL;
-    free(buffer5);
-    buffer5 = NULL;
-    free(buffer6);
-    buffer6 = NULL;
-
-    delete [] path;
-    free(file_buf);
-
-    if (retval < 0) {
-        fprintf(stderr, "ERROR: failed to send message\n");
-        return -1;
-    }
-    return 0;
+    free(typestr);
 }
 
+/**
+ * Parse a given request to find the file path
+ * @param request the request to parse
+ * @param flag indicate error status code
+ * @return the path found
+ */
 char* parse_request(const char* request, char* flag) {
     // check if not GET
-    if (strncmp(request, "GET", 3) != 0)
+    if (strncmp(request, "GET", 3) != 0) {
         strcpy(flag, "501 Not Implemented");
-
+        return nullptr;
+    }
     const char *path_start = strchr(request, ' ') + 1;
     const char *path_end = strchr(path_start, ' ');
     size_t path_len = path_end - path_start;
@@ -270,6 +224,113 @@ char* parse_request(const char* request, char* flag) {
     return path;
 }
 
+/**
+ * Get the content of a file at a given path
+ * @param path the path to locate a file
+ * @param flag indicate error status code
+ * @param file_size the size of file
+ * @return the content of the file
+ */ 
+char* read_file(const char* path, char* flag, size_t file_size) {
+    char* file_buf = (char*)malloc((file_size + 1) * sizeof(char));
+    FILE* file_stream = fopen(path, "rb");
+    if (file_stream == NULL) {
+        strcpy(flag, "404 Not Found");
+    }
+    if (file_stream != nullptr) {
+        fread(file_buf, 1, file_size, file_stream);
+        fclose(file_stream);
+    }
+    return file_buf;
+}
+
+/**
+ * Generate a normal header with given information
+ * @param header the header to form
+ * @param mod_time last file modification time
+ * @param file_type the type of file
+ * @param flag indicate error status code 
+ * @param len_buf the size of file
+ * @param date_buf the current date
+ */
+void prep_header(char* header, char* mod_time, const char* file_type, const char* flag, const char* len_buf, const char* date_buf) {
+    // header info format
+    const char *stat_fmt = "HTTP/1.1 %s\r\n";
+    const char *conn_fmt = "Connection: %s\r\n";
+    const char *type_fmt = "Content-Type: %s\r\n";
+    const char *clen_fmt = "Content-Length: %s\r\n";   
+    const char *modi_fmt = "Last-Modified: %s";
+    const char *date_fmt = "Date: %s\r\n"; 
+    const char *CRLF = "\r\n";
+
+    size_t tmp_len;
+    tmp_len = strlen(stat_fmt) + strlen(flag) + 1;
+    char *buffer1 = (char *)malloc(tmp_len);
+    snprintf(buffer1, tmp_len, stat_fmt, flag);
+
+    tmp_len = strlen(conn_fmt) + strlen("close") + 1;
+    char *buffer2 = (char *)malloc(tmp_len);
+    snprintf(buffer2, tmp_len, conn_fmt, "close");
+
+    tmp_len = strlen(type_fmt) + strlen(file_type) + 1;
+    char *buffer3 = (char *)malloc(tmp_len);
+    snprintf(buffer3, tmp_len, type_fmt, file_type);
+
+    tmp_len = strlen(clen_fmt) + strlen(len_buf) + 1;
+    char *buffer4 = (char *)malloc(tmp_len);
+    snprintf(buffer4, tmp_len, clen_fmt, len_buf);
+    
+    tmp_len = strlen(modi_fmt) + strlen(mod_time) + 1;
+    char *buffer5 = (char *)malloc(tmp_len);
+    snprintf(buffer5, tmp_len, modi_fmt, mod_time);
+
+    tmp_len = strlen(date_fmt) + strlen(date_buf) + 1;
+    char *buffer6 = (char *)malloc(tmp_len);
+    snprintf(buffer6, tmp_len, date_fmt, date_buf);
+    
+    strcpy(header, "");
+    strcat(header, buffer1);
+    strcat(header, buffer2);
+    strcat(header, buffer3);
+    strcat(header, buffer4);
+    strcat(header, buffer5);
+    strcat(header, buffer6);
+    strcat(header, CRLF);
+    free(buffer1);
+    free(buffer2);
+    free(buffer3);
+    free(buffer4);
+    free(buffer5);
+    free(buffer6);
+}
+
+/**
+ * Generate a short header with given information
+ * @param header the header to form
+ * @param flag indicate error status code 
+ */
+void prep_header_err(char* header, const char* flag) {
+    // header info format
+    const char *stat_fmt = "HTTP/1.1 %s\r\n";
+    const char *conn_fmt = "Connection: %s\r\n";
+    const char *CRLF = "\r\n";
+
+    size_t tmp_len;
+    tmp_len = strlen(stat_fmt) + strlen(flag) + 1;
+    char *buffer1 = (char *)malloc(tmp_len);
+    snprintf(buffer1, tmp_len, stat_fmt, flag);
+    
+    tmp_len = strlen(conn_fmt) + strlen("close") + 1;
+    char *buffer2 = (char *)malloc(tmp_len);
+    snprintf(buffer2, tmp_len, conn_fmt, "close");
+    
+    strcpy(header, "");
+    strcat(header, buffer1);
+    strcat(header, buffer2);
+    strcat(header, CRLF);
+    free(buffer1);
+    free(buffer2);
+}
 
 /**
  * Send exactly num_bytes from the buffer
@@ -290,10 +351,8 @@ int send_msg(int sock, char* buffer, unsigned long num_bytes) {
             fprintf(stderr, "ERROR: client closed the connection unexpectedly\n");
             return -1;
         }
-        assert(retval > 0); // WHY
         buffer += retval;
         num_bytes -= retval;
-        assert(num_bytes >= 0); // WHY
     }
     return 0;
 }
@@ -323,9 +382,6 @@ int recv_msg(int sock, char* buffer, unsigned long num_bytes) {
 
 /**
  * Get the port number from the first command line argument
- * PRE: argv has argc elements
- * POST: argv has at least 1 element
- * 
  * @param argc number of command line arguments
  * @param argv array of command line arguments
  * @return the port number
@@ -351,4 +407,13 @@ unsigned short get_port(int argc, char* argv[]) {
     }
     
     return port;
+}
+
+/**
+ * Print out an error and then exit the program
+ * @param step the step at which an error occurs
+ */ 
+void error_exit(const char* step) {
+    perror(step);
+    exit(1);
 }
